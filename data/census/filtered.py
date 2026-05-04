@@ -17,12 +17,8 @@ def execute(context):
     # Filter requested codes
     df_codes = context.stage("data.spatial.codes")
 
-    requested_departements = df_codes["departement_id"].unique()
-    df = df[df["departement_id"].isin(requested_departements)]
-
-    excess_communes = set(df["commune_id"].unique()) - set(df_codes["commune_id"].unique())
-    if not excess_communes == {"undefined"}:
-        raise RuntimeError("Found additional communes: %s" % excess_communes)
+    requested_communes = set(df_codes["commune_id"].unique())
+    df = df[df["commune_id"].isin(requested_communes) | (df["commune_id"] == "undefined")]
 
     excess_iris = set(df["iris_id"].unique()) - set(df_codes["iris_id"].unique())
     if not excess_iris == {"undefined"}:

@@ -141,6 +141,31 @@ def execute(context):
     # reconstruct retired people from "professional_activity"
     df.loc[df["professional_activity"] == "retired", "socioprofessional_class"] = 7
 
+    # Socioprofessional class detail: CS of the household reference person in 17 categories (PCSL)
+    df["socioprofessional_class_detail"] = df["PCSL"].replace({ "ZZ": "0" }).astype(int)
+
+    # Employment sector: NA17 aggregation (INSEE NAF nomenclature, niveau A17)
+    _na17_labels = {
+        "AZ": "agriculture",
+        "DE": "energy_water_waste_mining",
+        "C1": "food_beverages_tobacco",
+        "C2": "refining",
+        "C3": "electrical_electronics_ict_machinery",
+        "C4": "transport_equipment",
+        "C5": "other_manufacturing",
+        "FZ": "construction",
+        "GZ": "retail_auto",
+        "HZ": "transport_storage",
+        "IZ": "accommodation_food_services",
+        "JZ": "information_communication",
+        "KZ": "finance_insurance",
+        "LZ": "real_estate",
+        "MN": "scientific_technical_support_services",
+        "OQ": "public_admin_education_health",
+        "RU": "arts_recreation_other_services",
+    }
+    df["employment_sector"] = df["NA17"].map(_na17_labels).fillna("not_applicable").astype("category")
+
     # TODO: in the future matching variable, would be good to treat students / pupils separately
 
     # Consumption units
@@ -153,7 +178,8 @@ def execute(context):
         "professional_activity",
         "commute_mode", "employed", "studies",
         "number_of_cars", "number_of_motorcycles", "number_of_vehicles", "use_motorcycle",
-        "household_size", "consumption_units", "socioprofessional_class"
+        "household_size", "consumption_units", "socioprofessional_class",
+        "socioprofessional_class_detail", "employment_sector",
     ]]
 
     if context.config("use_urban_type"):

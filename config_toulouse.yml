@@ -2,11 +2,12 @@
 ## based on the synpp package
 
 # This is the path to a directory where the pipeline can store temporary data
-working_directory: /path/to/my/cache
+working_directory: /Users/yvesb/Documents/eqasim-france/cache
 
 # This section defines which parts of the pipeline should be run
 run:
   - synthesis.output # To create the output population in the output_path (see below)
+  - synthesis.population.llm_agents # Export population as JSON for the LLM-agents GAMA simulation
   # - matsim.output # Uncomment, if you want to run the full simulation (you'll need Java for that)
 
 # Here the configuraiton of the pipeline starts
@@ -17,13 +18,15 @@ config:
   # Define whether to use ENTD or EGT as the household travel survey (HTS)
   hts: entd
 
+  # extra_enriched_attributes: ["is_passenger", "number_of_trips"]
+
   # Define sampling rate and random seed for the output population
-  sampling_rate: 0.001
+  sampling_rate: 0.01
   random_seed: 1234
 
   # Paths to the input data and where the output should be stored
-  data_path: /path/to/my/data
-  output_path: /path/to/my/output
+  data_path: /Users/yvesb/Documents/eqasim-france/data
+  output_path: /Users/yvesb/Documents/eqasim-france/output
   output_prefix: toulouse_
 
   # Only interesting if you run the simulation
@@ -34,7 +37,7 @@ config:
 
   # Toulouse settings
   regions: []
-  departments: ["09", "82", "81", "11", "31", "32"] # 12 30 34 46 48 65 66
+  departments: ["31"]
   gtfs_path: gtfs_toulouse
   osm_path: osm_toulouse
   ban_path: ban_toulouse

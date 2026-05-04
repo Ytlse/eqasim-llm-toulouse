@@ -38,6 +38,7 @@ def execute(context):
 
 def validate(context):
     filename = os.path.join(context.config("data_path"), context.config("siret_geo_path"))
+    print("\n===> Validating SIRENE geolocalization data at %s" % filename)
     if not os.path.isfile(filename):
         raise RuntimeError("SIRENE: geolocaized SIRET data is not available")
 

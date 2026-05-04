@@ -13,6 +13,7 @@ def configure(context):
 
     context.config("regions", [11])
     context.config("departments", [])
+    context.config("communes", [])
     context.config("codes_path", "codes_2024/reference_IRIS_geo2024.zip")
     context.config("codes_xlsx", "reference_IRIS_geo2024.xlsx")
 
@@ -44,6 +45,10 @@ def execute(context):
 
     if len(requested_departments) > 0:
         df_codes = df_codes[df_codes["departement_id"].isin(requested_departments)]
+
+    requested_communes = list(map(str, context.config("communes")))
+    if len(requested_communes) > 0:
+        df_codes = df_codes[df_codes["commune_id"].isin(requested_communes)]
 
     df_codes["iris_id"] = df_codes["iris_id"].cat.remove_unused_categories()
     df_codes["commune_id"] = df_codes["commune_id"].cat.remove_unused_categories()

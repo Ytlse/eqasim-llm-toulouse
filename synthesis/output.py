@@ -75,8 +75,10 @@ def execute(context):
     columns = [
         "person_id", "household_id",
         "age", "employed", "studies", "sex", "socioprofessional_class",
+        "socioprofessional_class_detail", "employment_sector",
         "professional_activity",
         "has_driving_license", "has_pt_subscription",
+        "household_size", "consumption_units", "age_range",
         "census_person_id", "hts_id"
     ] + context.config("extra_enriched_attributes")
     df_persons = df_persons[columns]
@@ -283,6 +285,8 @@ def execute(context):
         "geometry": "following_geometry"
     }), how = "left", on = ["person_id", "following_activity_index"])
 
+    f_valid = df_spatial["preceding_geometry"].notna() & df_spatial["following_geometry"].notna()
+    df_spatial = df_spatial[f_valid]
     df_spatial["geometry"] = [
         geo.LineString(od)
         for od in zip(df_spatial["preceding_geometry"], df_spatial["following_geometry"])

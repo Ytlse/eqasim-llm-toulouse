@@ -33,6 +33,7 @@ def execute(context):
         "number_of_cars", "number_of_motorcycles", "number_of_vehicles", "use_motorcycle",
         "household_size", "consumption_units",
         "socioprofessional_class", "professional_activity",
+        "socioprofessional_class_detail", "employment_sector",
     ]]
 
     # Attach matching information

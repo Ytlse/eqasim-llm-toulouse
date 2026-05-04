@@ -30,25 +30,27 @@ COLUMNS_DTYPES = {
     "TP":"str",
     "TRANS":"str",
     "VOIT":"str",
-    "DEROU":"str"
+    "DEROU":"str",
+    "PCSL":"str",
+    "NA17":"str",
 }
 
 
 def execute(context):
-    df_records = []
     df_codes = context.stage("data.spatial.codes")
+    requested_departements = df_codes["departement_id"].unique().tolist()
 
-    requested_departements = df_codes["departement_id"].unique()
+    path = "{}/{}".format(context.config("data_path"), context.config("census_path"))
 
-    with context.progress(label = "Reading census ...") as progress:
-        parquet = pl.read_parquet( "{}/{}".format(context.config("data_path"), context.config("census_path")),
-                        columns=  COLUMNS_DTYPES.keys())
-
-        parquet = parquet.cast(pl.String)
-        parquet = parquet.filter(pl.col("DEPT").is_in(requested_departements))
-
+    with context.progress(label="Reading census ...") as progress:
+        parquet = (
+            pl.scan_parquet(path)
+            .select(list(COLUMNS_DTYPES.keys()))
+            .with_columns([pl.col(c).cast(pl.Utf8) for c in COLUMNS_DTYPES.keys()])
+            .filter(pl.col("DEPT").is_in(requested_departements))
+            .collect()
+        )
         progress.update(len(parquet))
-
 
     return parquet.to_pandas()
 

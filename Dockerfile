@@ -14,13 +14,12 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 COPY pyproject.toml uv.lock .python-version /eqasim/
 RUN cd /eqasim && uv sync
 
-# Copy eqasim code
+# Copy eqasim code (data is provided at runtime via volume mount at /eqasim-data)
 COPY analysis /eqasim/analysis
-COPY data /eqasim/data
 COPY matsim /eqasim/matsim
 COPY noise /eqasim/noise
 COPY synthesis /eqasim/synthesis
-COPY documentation /eqasim/documentation
+COPY data /eqasim/data
 COPY version.txt /eqasim
 
 # Set up iterface
