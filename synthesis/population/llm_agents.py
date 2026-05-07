@@ -406,20 +406,13 @@ def execute(context):
                 lon_v = None if pd.isna(act["lon"]) else float(act["lon"])
                 lat_v = None if pd.isna(act["lat"]) else float(act["lat"])
 
-                out_of_graph_m = None
-                if otp_polygon is not None and lon_v is not None and lat_v is not None:
-                    lon_v, lat_v, dist = _snap_to_polygon(lon_v, lat_v, otp_polygon)
-                    if dist > 0:
-                        out_of_graph_m = round(dist, 1)
-
                 act_entry = {
                     "id": str(uuid.uuid5(_UUID_NAMESPACE, f"{pid}_{int(act['activity_index'])}")),
                     "scheduled_start_time": None,
                     "start_time": start_time,
                     "end_time": end_time,
                     "purpose": str(act["purpose"]),
-                    "location": {"lon": lon_v, "lat": lat_v},
-                    "out_of_graph_distance_m": out_of_graph_m,
+                    "location": {"lon": lon_v, "lat": lat_v}
                 }
                 activities_list.append(act_entry)
 
