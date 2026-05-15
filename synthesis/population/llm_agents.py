@@ -427,7 +427,6 @@ def execute(context):
                     home_location = {"lon": first_home["location"]["lon"], "lat": first_home["location"]["lat"]}
 
         age_val = int(row["age"])
-        age_bracket = f"{(age_val // 5) * 5}-{(age_val // 5) * 5 + 4}"
 
         if pro_act == "student":
             main_occupation_fr = "Scolaire (jusqu'au Bac)" if age_val < 18 else "Étudiant"
@@ -445,7 +444,6 @@ def execute(context):
         traits = {
             "name": name,
             "age": age_val,
-            "age_bracket": age_bracket,
             "gender": "Male" if sex == "male" else "Female",
             "main_occupation": main_occupation_fr,
             "travel_purposes": travel_purposes,

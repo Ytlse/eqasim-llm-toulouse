@@ -118,32 +118,9 @@ def _read_population_size_from_config(config_path: str) -> int | None:
 
 
 def _find_cached_file(population_size: int, prefix: str = OUTPUT_PREFIX) -> str | None:
-    """
-    Return the path of an existing population JSON that has enough people,
-    or None if no suitable file is found.
-
-    A cached file is valid when its embedded count N >= population_size
-    (the loader will sample down to the exact requested count).
-    The prefix differentiates full-département runs from bbox-filtered runs.
-    """
-    if not os.path.isdir(OUTPUT_DIR):
-        return None
-
-    pattern = re.compile(rf"^{re.escape(prefix)}population_(\d+)\.json$")
-    candidates = []
-    for name in os.listdir(OUTPUT_DIR):
-        m = pattern.match(name)
-        if m:
-            n = int(m.group(1))
-            if n >= population_size:
-                candidates.append((n, os.path.join(OUTPUT_DIR, name)))
-
-    if not candidates:
-        return None
-
-    # Prefer the smallest file that is still large enough (avoid unnecessary I/O).
-    candidates.sort()
-    return candidates[0][1]
+    """Return the exact population JSON for the requested size, or None."""
+    path = os.path.join(OUTPUT_DIR, f"{prefix}population_{population_size}.json")
+    return path if os.path.isfile(path) else None
 
 
 def run(
@@ -251,6 +228,22 @@ def run(
     )
     if result.returncode != 0:
         sys.exit(result.returncode)
+
+    # synpp writes the file with the actual agent count (e.g. population_1021.json).
+    # Rename it to the exact requested size so downstream code can find it by name.
+    target_path = os.path.join(OUTPUT_DIR, f"{output_prefix}population_{population_size}.json")
+    if not os.path.isfile(target_path):
+        pattern = re.compile(rf"^{re.escape(output_prefix)}population_(\d+)\.json$")
+        generated = [
+            (int(m.group(1)), os.path.join(OUTPUT_DIR, name))
+            for name in os.listdir(OUTPUT_DIR)
+            if (m := pattern.match(name))
+        ]
+        if generated:
+            _, src = max(generated)
+            if src != target_path:
+                os.rename(src, target_path)
+                print(f"[eqasim] Renamed {os.path.basename(src)} → {os.path.basename(target_path)}")
 
     return _find_cached_file(population_size, prefix=output_prefix)
 
