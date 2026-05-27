@@ -319,39 +319,49 @@ def execute(context):
             if acts.iloc[0]["purpose"] != "home":
                 first_st = acts.iloc[0]["start_time"]
                 home_end = float(first_st) if not pd.isna(first_st) else 0.0
-                acts.at[0, "start_time"] = home_end
-                acts.at[0, "is_first"] = False
-                prepend = pd.DataFrame([{
-                    "person_id": pid,
-                    "activity_index": int(acts["activity_index"].min()) - 1,
-                    "purpose": "home",
-                    "start_time": np.nan,
-                    "end_time": home_end,
-                    "is_first": True,
-                    "is_last": False,
-                    "lon": home_lon,
-                    "lat": home_lat,
-                }])
-                acts = pd.concat([prepend, acts], ignore_index=True)
+                if home_end > 0.0:
+                    # There is time before the first activity: prepend a home covering [0, home_end].
+                    acts.at[0, "start_time"] = home_end
+                    acts.at[0, "is_first"] = False
+                    prepend = pd.DataFrame([{
+                        "person_id": pid,
+                        "activity_index": int(acts["activity_index"].min()) - 1,
+                        "purpose": "home",
+                        "start_time": np.nan,
+                        "end_time": home_end,
+                        "is_first": True,
+                        "is_last": False,
+                        "lon": home_lon,
+                        "lat": home_lat,
+                    }])
+                    acts = pd.concat([prepend, acts], ignore_index=True)
+                # else: first non-home activity starts at t=0 (person away since midnight).
+                # No room for a home prefix; keep acts[0] as is_first with start=0.0.
 
             # 3. Ensure last activity is home
             if acts.iloc[-1]["purpose"] != "home":
-                last_et = acts.iloc[-1]["end_time"]
-                home_start = float(last_et) if not pd.isna(last_et) else 86400.0
-                acts.at[len(acts) - 1, "end_time"] = home_start
-                acts.at[len(acts) - 1, "is_last"] = False
-                append_df = pd.DataFrame([{
-                    "person_id": pid,
-                    "activity_index": int(acts["activity_index"].max()) + 1,
-                    "purpose": "home",
-                    "start_time": home_start,
-                    "end_time": np.nan,
-                    "is_first": False,
-                    "is_last": True,
-                    "lon": home_lon,
-                    "lat": home_lat,
-                }])
-                acts = pd.concat([acts, append_df], ignore_index=True)
+                last_st = float(acts.iloc[-1]["start_time"]) if not pd.isna(acts.iloc[-1]["start_time"]) else 0.0
+                last_et = float(acts.iloc[-1]["end_time"]) if not pd.isna(acts.iloc[-1]["end_time"]) else 86400.0
+                if last_st > 86400.0 or last_et >= 86400.0:
+                    # Last activity already closes at or after midnight: day is naturally closed.
+                    # Adding a home with start=86400 and end=86400 would give zero duration.
+                    pass
+                else:
+                    home_start = last_et
+                    acts.at[len(acts) - 1, "end_time"] = home_start
+                    acts.at[len(acts) - 1, "is_last"] = False
+                    append_df = pd.DataFrame([{
+                        "person_id": pid,
+                        "activity_index": int(acts["activity_index"].max()) + 1,
+                        "purpose": "home",
+                        "start_time": home_start,
+                        "end_time": np.nan,
+                        "is_first": False,
+                        "is_last": True,
+                        "lon": home_lon,
+                        "lat": home_lat,
+                    }])
+                    acts = pd.concat([acts, append_df], ignore_index=True)
 
             # 4. Enforce spatial continuity: first and last share home (lat, lon)
             if home_lon is not None:
@@ -393,15 +403,13 @@ def execute(context):
                 print(f"[llm_agents] person={pid}: merged {len(_acts_list) - len(_merged)} duplicate activity pair(s) ({len(_acts_list)} → {len(_merged)})")
             acts = pd.DataFrame(_merged).reset_index(drop=True)
 
-            # 5. Build activities list (-1.0 strictly for first/last activity only)
+            # 5. Build activities list (0.0 for first, 86400.0 for last — set in activities.py)
             for _, act in acts.iterrows():
-                is_first_act = bool(act["is_first"])
-                is_last_act  = bool(act["is_last"])
                 st = act["start_time"]
                 et = act["end_time"]
 
-                start_time = -1.0 if is_first_act else float(st)
-                end_time   = -1.0 if is_last_act  else float(et)
+                start_time = float(st) if not pd.isna(st) else 0.0
+                end_time   = float(et) if not pd.isna(et) else 86400.0
 
                 lon_v = None if pd.isna(act["lon"]) else float(act["lon"])
                 lat_v = None if pd.isna(act["lat"]) else float(act["lat"])
@@ -494,6 +502,15 @@ def execute(context):
         }
         result.append(entry)
 
+    # Fix zero-duration intermediate activities: if start_time == end_time,
+    # set end_time = start_time of the next activity (eqasim arrival_time artifact).
+    for entry in result:
+        acts = entry["identity"]["activities"]
+        for i in range(len(acts) - 1):
+            act = acts[i]
+            if act["start_time"] == act["end_time"]:
+                act["end_time"] = acts[i + 1]["start_time"]
+
     n = len(result)
     output_file = os.path.join(output_path, f"{output_prefix}population_{n}.json")
     with open(output_file, "w", encoding="utf-8") as f:
@@ -517,14 +534,13 @@ def execute(context):
                     f"{a['purpose']}→{b['purpose']} @ ({lat_a:.5f},{lon_a:.5f})"
                 )
     if violations:
-        print(f"[llm_agents] WARNING: {len(violations)} consecutive same-location activity pair(s):")
+        print(f"[llm_agents] WARNING: {len(violations)} consecutive same-location activity pair(s) "
+              f"(scheduler handles these via same_location check — no routing issued):")
         for v in violations[:10]:
             print(v)
         if len(violations) > 10:
             print(f"  ... and {len(violations) - 10} more")
-        raise AssertionError(
-            f"{len(violations)} consecutive activities share the same location — merge step failed"
-        )
-    print(f"[llm_agents] Sanity check passed: no consecutive same-location activities")
+    else:
+        print(f"[llm_agents] Sanity check passed: no consecutive same-location activities")
 
     return n

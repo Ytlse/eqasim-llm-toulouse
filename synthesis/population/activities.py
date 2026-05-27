@@ -23,7 +23,7 @@ def execute(context):
     df_activities["end_time"] = df_activities["departure_time"]
 
     df_activities["start_time"] = df_activities.shift(1)["arrival_time"]
-    df_activities.loc[df_activities["is_first_trip"], "start_time"] = np.nan
+    df_activities.loc[df_activities["is_first_trip"], "start_time"] = 0.0
 
     df_activities["is_first"] = df_activities["is_first_trip"]
     df_activities["is_last"] = False
@@ -35,7 +35,8 @@ def execute(context):
     df_last["purpose"] = df_activities["following_purpose"]
 
     df_last["start_time"] = df_activities["arrival_time"]
-    df_last["end_time"] = np.nan
+    # For post-midnight arrivals (start > 86400) ensure end_time > start_time.
+    df_last["end_time"] = np.maximum(df_last["start_time"] + 1.0, 86400.0)
 
     df_last["is_first"] = False
     df_last["is_last"] = True
