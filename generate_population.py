@@ -221,6 +221,10 @@ def run(
         yaml.dump(config, tmp, default_flow_style=False, allow_unicode=True)
         tmp_path = tmp.name
 
+    # Snapshot existing files so we can identify what synpp newly creates.
+    pattern = re.compile(rf"^{re.escape(output_prefix)}population_(\d+)\.json$")
+    files_before = set(os.listdir(OUTPUT_DIR))
+
     print(f"[eqasim] Running synpp with config: {tmp_path}")
     result = subprocess.run(
         ["uv", "run", "-m", "synpp", tmp_path],
@@ -231,16 +235,17 @@ def run(
 
     # synpp writes the file with the actual agent count (e.g. population_1021.json).
     # Rename it to the exact requested size so downstream code can find it by name.
+    # Only consider files that did not exist before the run to avoid picking up stale
+    # outputs from earlier runs with a higher number in their name.
     target_path = os.path.join(OUTPUT_DIR, f"{output_prefix}population_{population_size}.json")
     if not os.path.isfile(target_path):
-        pattern = re.compile(rf"^{re.escape(output_prefix)}population_(\d+)\.json$")
-        generated = [
+        new_files = [
             (int(m.group(1)), os.path.join(OUTPUT_DIR, name))
             for name in os.listdir(OUTPUT_DIR)
-            if (m := pattern.match(name))
+            if name not in files_before and (m := pattern.match(name))
         ]
-        if generated:
-            _, src = max(generated)
+        if new_files:
+            _, src = max(new_files)
             if src != target_path:
                 os.rename(src, target_path)
                 print(f"[eqasim] Renamed {os.path.basename(src)} → {os.path.basename(target_path)}")
@@ -249,6 +254,7 @@ def run(
 
 
 def main() -> None:
+    """Point d'entrée CLI : lance run() avec les paramètres par défaut."""
     run()
 
 
