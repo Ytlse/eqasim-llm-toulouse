@@ -97,6 +97,8 @@ def process(context, purpose, random, df_persons, df_od, df_locations,step_name)
             for df_partial in parallel.imap_unordered(sample_destination_municipalities, df_demand.itertuples(index = False, name = None)):
                 df_flow.append(df_partial)
 
+    if len(df_flow) == 0:
+        return pd.DataFrame(columns=["origin_id", "destination_id", "location_id"])
     df_flow = pd.concat(df_flow).sort_values(["origin_id", "destination_id"])
 
     # Sample destinations based on the obtained flows

@@ -28,6 +28,13 @@ import yaml
 # Approximate population of Haute-Garonne (dept 31), used as fallback when no bbox is given.
 TOULOUSE_DEPT_POPULATION = 1_400_000
 
+# Départements servis par défaut. Le périmètre d'enquête EMC² en couvre SIX (31, 32, 81,
+# 82, 09, 11) ; la version Haute-Garonne du ticket 026 n'en sert qu'un, faute des données
+# BD TOPO et BAN des cinq autres. La limite est chiffrée dans
+# docs/arch/perimetre-population.md (limite n°6) : elle plafonne la 3ᵉ couronne à 10,6 %
+# de la population quand l'enquête en compte 15,4 %.
+DEPARTMENTS = ["31"]
+
 # Safety margin over the effective zone population to absorb IPF rounding
 SAMPLING_MARGIN = 1.15
 
@@ -101,6 +108,47 @@ def _communes_from_bbox(
     return communes, total_pop
 
 
+def _perimeter_communes(departments: list[str] | None) -> list[str]:
+    """Cadre de tirage : les communes du périmètre d'enquête EMC² (ticket 026).
+
+    La liste vient de `llm_module/data/commune_couronne.json`, produite par
+    `make communes-couronnes` depuis la couche SIG de l'enquête — 453 communes sur six
+    départements. `departments` la restreint : la version Haute-Garonne du ticket 026
+    passe `["31"]` et obtient 346 communes.
+
+    ⚠ **Le cadre n'est pas le périmètre.** Restreindre aux communes du 31 est un choix de
+    découpage du travail, chiffré et publié (perimetre-population.md, limite n°6) : il
+    plafonne la 3ᵉ couronne à 10,6 % de la population quand l'enquête en compte 15,4 %.
+    Le filtre d'admission au chargement, lui, reste sur les 453.
+
+    Lève si la liste est vide : sans ce garde-fou, une faute de frappe ferait retomber en
+    silence sur le département entier, et on croirait avoir un cadre conforme.
+    """
+    from llm_module.core.residence_zone import CommuneTable
+
+    table = CommuneTable.load()
+    communes = table.communes(departments)
+    counts = table.counts(departments)
+    print(f"[eqasim] cadre de tirage : périmètre EMC² restreint à "
+          f"{departments or 'tous les départements'} → {len(communes)} communes "
+          f"({', '.join(f'{k} {v}' for k, v in counts.items())})")
+    return communes
+
+
+def _population_of(communes: list[str], data_path: str = "/eqasim-data") -> int:
+    """Population RP 2022 des communes retenues, pour le `sampling_rate`."""
+    import pandas as pd
+
+    pop_path = os.path.join(data_path, "rp_2022", "base-ic-evol-struct-pop-2022_csv.zip")
+    if not os.path.exists(pop_path):
+        print(f"[eqasim] Warning: {pop_path} absent — population effective inconnue")
+        return 0
+    with zipfile.ZipFile(pop_path) as z:
+        with z.open("base-ic-evol-struct-pop-2022.CSV") as f:
+            df = pd.read_csv(f, sep=";", usecols=["COM", "P22_POP"], dtype={"COM": str})
+    return int(df[df["COM"].isin(communes)]["P22_POP"].sum())
+
+
 def _communes_cache_prefix() -> str:
     """Return the standard output prefix regardless of commune subset."""
     return OUTPUT_PREFIX
@@ -128,6 +176,8 @@ def run(
     generate_personality: bool = False,
     force: bool = False,
     bbox: list[float] | None = None,
+    perimeter: bool | None = None,
+    departments: list[str] | None = None,
 ) -> str | None:
     """
     Generate the population JSON.  Returns the output file path on cache-hit or after
@@ -136,6 +186,12 @@ def run(
     bbox: optional [min_lon, min_lat, max_lon, max_lat] in WGS84.  When provided,
     synpp is restricted to the communes that intersect the bbox, and the sampling_rate
     is derived from their actual population instead of the full département.
+
+    perimeter: when true (or EQASIM_PERIMETER=true), the sampling frame is the EMC² 2023
+    survey perimeter itself — a LIST OF COMMUNES, not a rectangle (ticket 026).  Takes
+    precedence over bbox: a rectangle cannot express "the survey perimeter, no more no
+    less".  departments restricts that frame; it defaults to EQASIM_DEPARTMENTS or the
+    départements listed in the synpp config (today ["31"], the Haute-Garonne version).
     """
     # ── Resolve population size ────────────────────────────────────────────────
     if population_size is None:
@@ -160,12 +216,29 @@ def run(
 
     print(f"[eqasim] population_size={population_size}  generate_personality={generate_personality}  bbox={bbox}")
 
-    # ── Resolve bbox → communes ────────────────────────────────────────────────
+    # ── Resolve sampling frame ─────────────────────────────────────────────────
     communes: list[str] = []
     effective_population = TOULOUSE_DEPT_POPULATION
     output_prefix = OUTPUT_PREFIX
 
-    if bbox is not None:
+    if perimeter is None:
+        perimeter = os.environ.get("EQASIM_PERIMETER", "false").lower() == "true"
+    if departments is None:
+        env_dep = os.environ.get("EQASIM_DEPARTMENTS", "")
+        departments = [d.strip() for d in env_dep.split(",") if d.strip()] or DEPARTMENTS
+
+    if perimeter:
+        # Le périmètre d'enquête est une LISTE DE COMMUNES, pas un rectangle : c'est la
+        # seule façon de dire « ni plus ni moins » (ticket 026). Il prime donc sur bbox.
+        if bbox is not None:
+            print("[eqasim] perimeter=true — la bbox est ignorée : un rectangle ne peut "
+                  "pas exprimer le périmètre d'enquête")
+        communes = _perimeter_communes(departments)
+        effective_population = _population_of(communes)
+        print(f"[eqasim] population effective du cadre : {effective_population:,} hab "
+              f"(RP 2022)")
+        output_prefix = _communes_cache_prefix()
+    elif bbox is not None:
         communes, effective_population = _communes_from_bbox(bbox)
         if communes:
             output_prefix = _communes_cache_prefix()
@@ -205,7 +278,7 @@ def run(
             "java_memory": "4G",
             "mode_choice": False,
             "regions": [],
-            "departments": ["31"],
+            "departments": departments,
             "communes": communes,
             "gtfs_path": "gtfs_toulouse",
             "osm_path": "osm_toulouse",

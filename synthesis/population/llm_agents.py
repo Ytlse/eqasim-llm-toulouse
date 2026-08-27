@@ -22,6 +22,73 @@ _UUID_NAMESPACE = uuid.UUID("e4a51200-0000-0000-0000-000000000000")
 
 _fake = Faker("fr_FR")
 
+
+# ── Couronne de résidence (ticket 021, lot 5 — étage B) ──────────────────────
+#
+# Le trait est posé ICI, et non dans `enriched.py`, pour une raison matérielle : ce
+# module SNAPPE les localisations hors du polygone OTP sur son bord, et `identity.home`
+# porte les coordonnées POST-SNAP (cf. la mise à jour de `home_location` plus bas).
+# `enriched.py` travaille sur `spatial.home.locations`, c'est-à-dire AVANT snap : y poser
+# la couronne la ferait diverger de celle du domicile que le journal utilise, pour tout
+# persona snappé. Un désaccord silencieux entre deux définitions est exactement ce que le
+# ticket 021 corrige ; le reproduire en le corrigeant serait ironique.
+#
+# Les ressources (`zf_zones.gpkg`, `zf_couronne.json`) viennent de `llm_module/data`, monté
+# dans le service eqasim depuis le ticket 015. Leur absence n'est PAS silencieuse : le
+# stage lève, parce qu'une population sans couronne fait retomber le scoring par zone sur
+# une couronne devinée à la distance — le bug d'origine.
+_RESIDENCE_ZONES = None
+
+
+def _residence_resolver():
+    """Charge une fois la couche de zones fines et la table des couronnes."""
+    global _RESIDENCE_ZONES
+    if _RESIDENCE_ZONES is None:
+        from llm_module.core.residence_zone import CouronneTable
+        from llm_module.core.zone_resolver import ZoneResolver
+        _RESIDENCE_ZONES = (ZoneResolver.load(), CouronneTable.load())
+    return _RESIDENCE_ZONES
+
+
+def _residence_traits(home_location) -> dict:
+    """`residence_zone` / `residence_commune` / `residence_insee` d'un domicile.
+
+    Trois écritures distinctes, comme l'étage D (`enrich_residence_zone.py`) : une
+    couronne dans le périmètre ; `hors périmètre` pour un domicile connu et dehors, qui
+    n'est PAS une couronne et n'a aucune cible EMC² ; rien du tout sans coordonnées —
+    affirmer « dehors » de quelqu'un dont on ne sait rien serait une invention. Et la
+    commune ne se déduit jamais d'un secteur, qui couvre plusieurs communes.
+    """
+    from llm_module.core.population_reference import OUT_OF_PERIMETER
+
+    if not home_location:
+        return {}
+    lat, lon = home_location.get("lat"), home_location.get("lon")
+    if lat is None or lon is None:
+        return {}
+    resolver, table = _residence_resolver()
+    zone = resolver.resolve(lat, lon)
+    if zone is None:
+        return {"residence_zone": OUT_OF_PERIMETER}
+    couronne = table.couronne_of_zf(zone.zf)
+    if couronne is None:
+        return {}
+    out = {"residence_zone": couronne}
+    commune = table.commune_of_zf(zone.zf)
+    if commune is not None:
+        out["residence_insee"], out["residence_commune"] = commune
+    return out
+
+
+def _flag(value) -> bool:
+    """Booléen d'un champ HTS, NaN compris.
+
+    `bool(nan)` vaut `True` : un simple `bool(row.get(col, False))` transforme donc
+    toute personne non appariée en titulaire du permis. La valeur manquante vaut
+    « non » (ticket 008, A1.a).
+    """
+    return bool(pd.notna(value) and value)
+
 # Socioprofessional class (INSEE PCS-2020 compatible, 8-class)
 _SPC_LABEL = {
     1: "Farmer",
@@ -466,12 +533,23 @@ def execute(context):
             "professional_activity": pro_act_label,
             "employment_sector": sector if sector != "not_applicable" else "",
             "car_availability": str(row.get("car_availability", "")),
-            "has_driving_license": bool(row.get("has_license", False)),
-            "has_pt_subscription": bool(row.get("has_pt_subscription", False)),
+            # `bool(row.get(col, False))` ne protégeait que de la colonne absente,
+            # jamais de la valeur NaN — et `bool(nan)` vaut True. Toute personne non
+            # appariée recevait donc le permis (ticket 008, A1.a). Deux gardes :
+            # `pd.notna` pour le NaN, et l'âge légal, qui rend l'anomalie impossible
+            # quel que soit le donneur apparié.
+            "has_driving_license": _flag(row.get("has_license")) and age_val >= 18,
+            "has_pt_subscription": _flag(row.get("has_pt_subscription")),
             "number_of_cars": int(row.get("number_of_cars", 0)),
             "employed": bool(row.get("employed", False)),
             "studies": bool(row.get("studies", False)),
+            "personal_bike": str(row.get("personal_bike", "Pas de vélo")),
         }
+
+        # Couronne et commune du domicile, lues sur le découpage communal de l'enquête.
+        # Posées APRÈS le bloc de snap, donc sur les coordonnées que `identity.home`
+        # portera — la même que lira la colonne « Lieu de résidence » du journal.
+        traits.update(_residence_traits(home_location))
 
         if generate_personality_traits:
             persona = _pick_personality(pid)

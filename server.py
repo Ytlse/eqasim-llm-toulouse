@@ -52,6 +52,10 @@ class EqasimHandler(BaseHTTPRequestHandler):
         generate_personality = str(body.get("generate_personality", False)).lower() == "true"
         force = str(body.get("force", False)).lower() == "true"
         bbox = body.get("bbox")  # optional [min_lon, min_lat, max_lon, max_lat]
+        # Cadre de tirage = périmètre d'enquête (liste de communes), ticket 026. Prime
+        # sur bbox : un rectangle ne sait pas dire « le périmètre, ni plus ni moins ».
+        perimeter = body.get("perimeter")
+        departments = body.get("departments")
 
         # Serialise concurrent requests — synpp is not re-entrant
         with _lock:
@@ -61,6 +65,8 @@ class EqasimHandler(BaseHTTPRequestHandler):
                     generate_personality=generate_personality,
                     force=force,
                     bbox=bbox,
+                    perimeter=perimeter,
+                    departments=departments,
                 )
                 self._send_json(200, {"status": "ok", "file": result_file or ""})
             except SystemExit as exc:

@@ -18,6 +18,29 @@ config:
   # Define whether to use ENTD or EGT as the household travel survey (HTS)
   hts: entd
 
+  # ── Appariement HTS : ne pas perdre l'âge (ticket 008, A1.a) ────────────────
+  # `filter_hts` (défaut True, cf. data/hts/entd/filtered.py) réduisait l'ENTD aux
+  # seuls répondants du département 31 : le vivier de donneurs tombait de ~18 000 à
+  # quelques centaines. Les strates n'atteignaient plus `matching_minimum_observations`,
+  # la dégradation retombait au niveau 1-2 et `age_class` disparaissait de
+  # l'appariement — un écolier de 9 ans héritait alors d'un donneur adulte, avec son
+  # permis de conduire et sa chaîne domicile → travail.
+  filter_hts: false
+
+  # La dégradation retire les colonnes **par la fin** (`column_indices[:level]`,
+  # synthesis/population/matched.py). L'attribut placé en tête est donc le dernier
+  # abandonné : `age_class` d'abord, pour qu'un enfant ne soit jamais apparié à un
+  # adulte tant qu'il reste un donneur du bon âge.
+  matching_attributes:
+    - age_class
+    - sex
+    - any_cars
+    - socioprofessional_class
+    - departement_id
+  # Vivier national restauré, mais strates plus fines : un seuil plus bas évite de
+  # dégrader dès le niveau 5.
+  matching_minimum_observations: 5
+
   # extra_enriched_attributes: ["is_passenger", "number_of_trips"]
 
   # Define sampling rate and random seed for the output population

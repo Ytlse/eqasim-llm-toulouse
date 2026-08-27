@@ -79,6 +79,7 @@ def execute(context):
         "professional_activity",
         "has_driving_license", "has_pt_subscription",
         "household_size", "consumption_units", "age_range",
+        "personal_bike",
         "census_person_id", "hts_id"
     ] + context.config("extra_enriched_attributes")
     df_persons = df_persons[columns]

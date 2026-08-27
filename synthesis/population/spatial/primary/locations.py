@@ -77,6 +77,8 @@ def process(context, purpose, df_persons, df_candidates):
             for df_partial in parallel.imap_unordered(process_municipality, unique_ids):
                 df_result.append(df_partial)
 
+    if len(df_result) == 0:
+        return pd.DataFrame(columns=["person_id", "commune_id", "location_id", "geometry"])
     return pd.concat(df_result).sort_index()
 
 def execute(context):
