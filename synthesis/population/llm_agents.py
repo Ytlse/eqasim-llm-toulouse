@@ -3,6 +3,7 @@ import json
 import math
 import os
 import uuid
+from collections import Counter
 import urllib.request
 
 import numpy as np
@@ -339,6 +340,9 @@ def execute(context):
 
     # ── Build JSON ─────────────────────────────────────────────────────────────
     result = []
+    # Champs de scellement absents d'une ligne (cf. `_root_field`) : comptés, remontés
+    # en fin de stage. Une colonne jetée en amont doit se voir dans le journal.
+    _missing_root_fields: Counter = Counter()
 
     for _, row in df_persons.iterrows():
         pid = int(row["person_id"])
@@ -560,8 +564,41 @@ def execute(context):
                 "big_five": p.get("big_five", {}),
             }
 
+        # ── Champs de scellement (contrôle de population AAMAS, ticket 028) ─────────
+        # À la RACINE de l'enregistrement, pas dans `traits_json`, et ce n'est pas un
+        # détail : `traits_json` est ce que l'agent sait de lui-même — il entre dans le
+        # narratif du prompt et dans la clé du cache de décisions. Un identifiant de
+        # ménage n'est pas quelque chose qu'un persona perçoit, et `commute_mode` est la
+        # RÉPONSE au problème que l'agent doit résoudre : le lui montrer viderait toute
+        # exactitude unitaire de son sens. Ces champs servent le contrôle (bootstrap par
+        # ménage, cibles ménage exactes) et la validation, jamais la décision.
+        #
+        # Absents → `None`, et le compte remonte en fin de stage : une colonne perdue en
+        # amont doit se voir, pas se fondre dans une population « presque » complète.
+        def _root_field(column: str):
+            value = row.get(column)
+            if value is None or (isinstance(value, float) and pd.isna(value)):
+                _missing_root_fields[column] += 1
+                return None
+            return str(value)
+
         entry = {
             "person_id": str(pid),
+            "household": {
+                "id": _root_field("household_id"),
+                "iris_id": _root_field("iris_id"),
+                "commune_id": _root_field("commune_id"),
+            },
+            "provenance": {
+                "census_person_id": _root_field("census_person_id"),
+                "hts_id": _root_field("hts_id"),
+            },
+            # ⚠ Vérité terrain par individu (RP `TRANS`, mode de navette déclaré).
+            # NE DOIT PAS atteindre le prompt. Sert à comparer, agent par agent, le mode
+            # simulé du trajet domicile-travail au mode déclaré.
+            "validation": {
+                "commute_mode": _root_field("commute_mode"),
+            },
             "identity": {
                 "name": name,
                 "traits_json": traits,
@@ -590,6 +627,15 @@ def execute(context):
                 act["end_time"] = acts[i + 1]["start_time"]
 
     n = len(result)
+    if _missing_root_fields:
+        print("[llm_agents] WARNING champs de scellement absents : "
+              + ", ".join(f"{k} sur {v}/{len(result)} personnes"
+                          for k, v in sorted(_missing_root_fields.items()))
+              + " — une colonne a été perdue en amont (enriched.py) ou n'existe pas dans le "
+                "recensement pour ces lignes ; le contrôle de population le verra.")
+    else:
+        print(f"[llm_agents] Champs de scellement complets sur {len(result)} personnes "
+              "(household, provenance, validation).")
     output_file = os.path.join(output_path, f"{output_prefix}population_{n}.json")
     with open(output_file, "w", encoding="utf-8") as f:
         json.dump(result, f, ensure_ascii=False, indent=4)

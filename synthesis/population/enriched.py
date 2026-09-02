@@ -40,6 +40,12 @@ def execute(context):
         "household_size", "consumption_units",
         "socioprofessional_class", "professional_activity",
         "socioprofessional_class_detail", "employment_sector",
+        # Scellement AAMAS (ticket 028 / contrôle de population) : ces trois colonnes
+        # existent dans le recensement nettoyé et étaient jetées ici. `iris_id` et
+        # `commune_id` rattachent le ménage à sa commune SANS résolveur géométrique ;
+        # `commute_mode` (RP `TRANS`) est le mode de navette DÉCLARÉ — une vérité terrain
+        # par individu, exportée à la racine de l'enregistrement et JAMAIS dans le prompt.
+        "commute_mode", "iris_id", "commune_id",
     ]]
 
     # Attach matching information
