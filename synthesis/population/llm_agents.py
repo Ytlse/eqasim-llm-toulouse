@@ -343,6 +343,8 @@ def execute(context):
     # Champs de scellement absents d'une ligne (cf. `_root_field`) : comptés, remontés
     # en fin de stage. Une colonne jetée en amont doit se voir dans le journal.
     _missing_root_fields: Counter = Counter()
+    _immobiles = 0                # journées sans activité hors domicile, GARDÉES (ticket 029)
+    _immobiles_sans_domicile = 0  # idem, sans coordonnées de domicile : écartées et comptées
 
     for _, row in df_persons.iterrows():
         pid = int(row["person_id"])
@@ -363,14 +365,35 @@ def execute(context):
         # ── Activities list ────────────────────────────────────────────────────
         raw_acts = activities_by_person.get(pid, pd.DataFrame())
 
-        # Skip persons with no activity other than home
-        if raw_acts.empty or raw_acts[raw_acts["purpose"] != "home"].empty:
-            continue
+        # Personne IMMOBILE : aucune activité hors domicile. Elle était écartée ici, ce qui
+        # vidait la population de ses immobiles — l'EMC² 2023 en compte 10,6 % des 5 ans et +
+        # (ticket 029). Elle reste désormais, avec une journée « domicile 0 → 86 400 s » et le
+        # drapeau racine `immobile` : aucun trajet, aucun appel LLM, mais elle compte dans la
+        # population, ses marges et son effectif.
+        immobile = bool(raw_acts.empty or raw_acts[raw_acts["purpose"] != "home"].empty)
 
         activities_list = []
         home_location = None
 
-        if not raw_acts.empty:
+        if immobile:
+            _home_rows = raw_acts[raw_acts["purpose"] == "home"] if not raw_acts.empty else raw_acts
+            if _home_rows.empty or pd.isna(_home_rows.iloc[0]["lon"]) or pd.isna(_home_rows.iloc[0]["lat"]):
+                # Sans coordonnées de domicile, la personne n'est plaçable nulle part : écartée,
+                # et comptée — un immobile sans adresse est une anomalie amont, pas un cas normal.
+                _immobiles_sans_domicile += 1
+                continue
+            _h = _home_rows.iloc[0]
+            home_location = {"lon": float(_h["lon"]), "lat": float(_h["lat"])}
+            activities_list.append({
+                "id": str(uuid.uuid5(_UUID_NAMESPACE, f"{pid}_0")),
+                "scheduled_start_time": None,
+                "start_time": 0.0,
+                "end_time": 86400.0,
+                "purpose": "home",
+                "location": {"lon": home_location["lon"], "lat": home_location["lat"]},
+            })
+            _immobiles += 1
+        elif not raw_acts.empty:
             acts = raw_acts.copy().reset_index(drop=True)
 
             # 1. Resolve home coordinates strictly from existing home activities.
@@ -584,6 +607,8 @@ def execute(context):
 
         entry = {
             "person_id": str(pid),
+            # Journée sans déplacement (une seule activité, domicile). Racine, pas `traits_json`.
+            "immobile": immobile,
             "household": {
                 "id": _root_field("household_id"),
                 "iris_id": _root_field("iris_id"),
@@ -636,6 +661,10 @@ def execute(context):
     else:
         print(f"[llm_agents] Champs de scellement complets sur {len(result)} personnes "
               "(household, provenance, validation).")
+    print(f"[llm_agents] Immobiles gardés : {_immobiles} sur {len(result)} personnes "
+          f"({100.0 * _immobiles / max(len(result), 1):.1f} % ; enquête EMC² 2023 : 10,6 %)"
+          + (f" — {_immobiles_sans_domicile} immobile(s) sans domicile écarté(s)"
+             if _immobiles_sans_domicile else ""))
     output_file = os.path.join(output_path, f"{output_prefix}population_{n}.json")
     with open(output_file, "w", encoding="utf-8") as f:
         json.dump(result, f, ensure_ascii=False, indent=4)
