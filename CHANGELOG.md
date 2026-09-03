@@ -2,6 +2,52 @@
 
 ## Fork Toulouse (llm-agents-gama) — non publié
 
+### 2026-09-03 — Le service Docker applique enfin les réglages d'appariement de `config_toulouse.yml`
+Jusqu'ici `generate_population.py` construisait sa propre configuration synpp **sans**
+`filter_hts`, `matching_attributes`, `matching_minimum_observations` ni les réglages des journées
+donneuses : synpp retombait sur ses défauts — `filter_hts: True`, soit **308 donneurs ENTD**
+résidents de Haute-Garonne (323 après le filtre des jours de classe) pour 12 000 personnes à
+apparier, seuil de 20 observations et classe d'âge abandonnée avant le sexe par la dégradation —
+pendant que `config_toulouse.yml` disait le contraire depuis le ticket 008. Toutes les
+populations générées par le service jusqu'à la v3 incluse portent des chaînes d'activités issues
+de ce vivier réduit (mesuré sur le vivier v4-répétition avant correction : 13 donneurs de
+6-10 ans, 7 de 11-14, 4 de 15-17 ; 63 % des écoliers mobiles avec une activité d'études).
+Le wrapper part désormais de `config_toulouse.yml` (monté dans le conteneur, `EQASIM_BASE_CONFIG`)
+et ne remplace que les chemins et paramètres d'exécution ; il **refuse** de générer (code 5) si le
+fichier manque ou ne fixe pas ces réglages, et imprime les réglages scientifiques retenus.
+
+Deux corrections du même jour : un donneur dont la journée de référence est écartée par le filtre
+des jours de classe **sort du vivier** au lieu de devenir un immobile (première version : 40,6 %
+d'immobiles dans la population générée, 50 % chez les 6-17 ans, contre 10,6 % dans l'enquête ;
+3 295 donneurs écartés, 14 702 Kish restants) ; une régénération forcée **remplace** le fichier
+cible existant — le fichier écrit par synpp se reconnaît à sa date, pas à la nouveauté de son
+nom — au lieu de rendre l'ancien vivier sous le nom demandé. La sortie standard du service est
+mise en tampon ligne par ligne, pour que ses lignes apparaissent dans `docker logs` dans l'ordre.
+
+**Mesuré sur le vivier régénéré (Haute-Garonne, 11 922 personnes, 6 min) :** 0 domicile hors des
+453 communes, `household.commune_id` renseigné pour tous (276 communes), **89,0 %** des 6-17 ans
+mobiles avec une activité d'études (6-10 ans 91,9 %, 11-14 ans 91,9 %, 15-17 ans 80,4 % — ces
+derniers partagent la classe d'âge 15-29 de l'appariement avec les jeunes adultes) contre 57,5 %
+dans le vivier v3, immobiles 19,3 % (la sélection les ramène à la cible), 2,93 déplacements par
+personne et 3,63 par personne mobile contre 2,58 et 2,88 dans la v3 (enquête : 3,53 et 3,95).
+
+### 2026-09-03 — Le cadre de tirage devient les 453 communes du périmètre, six départements
+`config_toulouse.yml` demande désormais les six départements de l'EMC² 2023 (31, 32, 81, 82,
+09, 11) et pointe sur la liste des 453 communes (`communes_file`, ticket 031 § 1.1). Le stage
+`data.spatial.codes` journalise le cadre retenu par département (346 / 38 / 27 / 22 / 10 / 10)
+et **refuse** une commune demandée que le référentiel IRIS ne connaît pas, au lieu de la laisser
+sortir du cadre en silence. Le service Docker (`generate_population.py`) vérifie **avant** de
+lancer synpp que chaque département demandé a sa BD TOPO et sa BAN, et s'arrête avec la liste de
+ce qui manque (code 3) : un département sans données ne se « saute » pas. Son défaut passe aux
+six départements ; le déploiement le restreint par `EQASIM_DEPARTMENTS` tant que les données des
+cinq autres ne sont pas là.
+
+L'export `llm_agents` renseigne `household.commune_id` et `household.iris_id` pour **tous** les
+ménages, à partir du tirage de zone du domicile (`spatial.home.zones`) : la colonne du
+recensement valait « undefined » pour 36 % des personnes du vivier v3 (IRIS anonymisés), et le
+runtime doit filtrer par commune du domicile (ticket 031, partie 2). « undefined » compte
+désormais comme valeur manquante dans le journal des champs de scellement.
+
 ### 2026-09-03 — Les chaînes d'activités viennent de jours de classe
 Le stage `data.hts.entd.cleaned` ne garde plus que les journées donneuses hors vacances
 scolaires (`V2_VAC_SCOL`), et hors mercredi pour les moins de 11 ans (`V2_JOUR_DEP`), réglages

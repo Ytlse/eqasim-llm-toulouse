@@ -21,6 +21,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 import zipfile
 
 import yaml
@@ -28,18 +29,65 @@ import yaml
 # Approximate population of Haute-Garonne (dept 31), used as fallback when no bbox is given.
 TOULOUSE_DEPT_POPULATION = 1_400_000
 
-# Départements servis par défaut. Le périmètre d'enquête EMC² en couvre SIX (31, 32, 81,
-# 82, 09, 11) ; la version Haute-Garonne du ticket 026 n'en sert qu'un, faute des données
-# BD TOPO et BAN des cinq autres. La limite est chiffrée dans
-# docs/arch/perimetre-population.md (limite n°6) : elle plafonne la 3ᵉ couronne à 10,6 %
-# de la population quand l'enquête en compte 15,4 %.
-DEPARTMENTS = ["31"]
+# Départements du périmètre d'enquête EMC² 2023 : SIX (ticket 031, option A). C'est le défaut
+# du code ; le déploiement peut le restreindre par `EQASIM_DEPARTMENTS` (docker-compose.yml)
+# ou par le corps de la requête. La version Haute-Garonne du ticket 026 passe ["31"], faute des
+# données BD TOPO et BAN des cinq autres départements — limite chiffrée dans
+# docs/arch/perimetre-population.md (limite n°6) : la 3ᵉ couronne plafonne à 10,6 % de la
+# population quand l'enquête en compte 15,4 %.
+DEPARTMENTS = ["31", "32", "81", "82", "09", "11"]
+
+# Données départementales attendues par synpp pour CHAQUE département demandé. Le pipeline
+# les vérifie avant de lancer synpp : sans cela, l'assertion de `data/bdtopo/raw.py` tombe
+# après dix minutes de traitement et sans dire quel fichier manque.
+BDTOPO_URL = "https://geoservices.ign.fr/bdtopo"
+BAN_URL = "https://adresse.data.gouv.fr/data/ban/adresses/latest/csv/adresses-{dep}.csv.gz"
 
 # Safety margin over the effective zone population to absorb IPF rounding
 SAMPLING_MARGIN = 1.15
 
 OUTPUT_DIR = "/eqasim-output"
 OUTPUT_PREFIX = "toulouse_"
+
+# Configuration de BASE du pipeline : `config_toulouse.yml`, monté dans le conteneur. C'est la
+# seule source des réglages scientifiques (appariement HTS : `filter_hts`, `matching_attributes`,
+# `matching_minimum_observations` ; journées donneuses : `hts_school_days_only`,
+# `hts_exclude_wednesday_under_age`). Jusqu'au 2026-09-03 le wrapper construisait sa propre
+# config SANS ces clés : synpp retombait sur ses défauts — `filter_hts: True`, soit 308 donneurs
+# ENTD résidents de Haute-Garonne pour 12 000 personnes à apparier, et une dégradation qui
+# abandonnait la classe d'âge (`matching_minimum_observations` 20) — pendant que
+# `config_toulouse.yml` (ticket 008, A1.a) disait le contraire. Le fichier absent est une erreur,
+# pas un retour aux défauts.
+BASE_CONFIG_PATH = os.environ.get("EQASIM_BASE_CONFIG", "/eqasim/config_toulouse.yml")
+# Réglages de la base que le wrapper REMPLACE (chemins et paramètres d'exécution du conteneur).
+RUNTIME_OVERRIDDEN_KEYS = (
+    "processes", "sampling_rate", "random_seed", "data_path", "output_path", "output_prefix",
+    "java_memory", "regions", "departments", "communes", "communes_file", "gtfs_path", "osm_path",
+    "ban_path", "bdtopo_path", "generate_personality_traits",
+)
+# Réglages scientifiques relus dans la base et journalisés à chaque génération.
+SCIENTIFIC_KEYS = (
+    "hts", "filter_hts", "matching_attributes", "matching_minimum_observations",
+    "hts_school_days_only", "hts_exclude_wednesday_under_age", "mode_choice",
+)
+
+
+def load_base_config(path: str = BASE_CONFIG_PATH) -> dict:
+    """Section `config:` de `config_toulouse.yml`. Lève si le fichier manque : sans lui, synpp
+    apparierait sur ses défauts (308 donneurs) en silence."""
+    if not os.path.isfile(path):
+        print(f"[eqasim] ERROR [ALARME] configuration de base introuvable : {path} — monter "
+              "eqasim-toulouse/config_toulouse.yml dans le conteneur (docker-compose.yml, service "
+              "eqasim) ou pointer EQASIM_BASE_CONFIG. Rien n'est généré.")
+        raise SystemExit(5)
+    with open(path, encoding="utf-8") as f:
+        base = (yaml.safe_load(f) or {}).get("config") or {}
+    missing = [k for k in SCIENTIFIC_KEYS if k not in base]
+    if missing:
+        print(f"[eqasim] ERROR [ALARME] {path} ne fixe pas {missing} : ces réglages ne doivent pas "
+              "retomber sur les défauts de synpp. Rien n'est généré.")
+        raise SystemExit(5)
+    return base
 
 
 def _communes_from_bbox(
@@ -133,6 +181,31 @@ def _perimeter_communes(departments: list[str] | None) -> list[str]:
           f"{departments or 'tous les départements'} → {len(communes)} communes "
           f"({', '.join(f'{k} {v}' for k, v in counts.items())})")
     return communes
+
+
+def check_department_data(departments: list[str], data_path: str = "/eqasim-data",
+                          bdtopo_path: str = "bdtopo_toulouse", ban_path: str = "ban_toulouse") -> list[str]:
+    """Rend la liste des données départementales MANQUANTES (vide = tout est là).
+
+    BD TOPO : une archive `.7z` ou un dossier `BDTOPO_*_D0<dep>_*` (livraison IGN décompressée)
+    dans `bdtopo_path` ; BAN : `adresses-<dep>.csv.gz` dans `ban_path`. Aucun téléchargement
+    ici — la décision d'obtenir 1 à 2 Go de BD TOPO par département appartient à l'auteur du
+    dépôt (ticket 031, § 1.0).
+    """
+    missing: list[str] = []
+    bdtopo_dir = os.path.join(data_path, bdtopo_path)
+    ban_dir = os.path.join(data_path, ban_path)
+    for dep in departments:
+        code = str(dep).zfill(2)
+        tag = f"D0{code}" if len(code) == 2 else f"D{code}"
+        has_bdtopo = any(tag in name for name in os.listdir(bdtopo_dir)) if os.path.isdir(bdtopo_dir) else False
+        if not has_bdtopo:
+            missing.append(f"BD TOPO {tag} attendue dans {bdtopo_dir} (édition alignée sur D031 "
+                           f"2024-09-15 ; {BDTOPO_URL})")
+        ban_file = os.path.join(ban_dir, f"adresses-{code}.csv.gz")
+        if not os.path.isfile(ban_file):
+            missing.append(f"BAN {ban_file} ({BAN_URL.format(dep=code)})")
+    return missing
 
 
 def _population_of(communes: list[str], data_path: str = "/eqasim-data") -> int:
@@ -253,6 +326,17 @@ def run(
     if cached and force:
         print(f"[eqasim] EQASIM_FORCE_REGENERATE=true — ignoring cached file: {cached}")
 
+    # ── Données départementales : tout ou rien ─────────────────────────────────
+    # Un département sans BD TOPO ni BAN ne se « saute » pas : le cadre serait amputé sans
+    # que la population le dise. On s'arrête AVANT synpp, avec la liste de ce qui manque.
+    missing_data = check_department_data(departments)
+    if missing_data:
+        print(f"[eqasim] ERROR [ALARME] données départementales manquantes pour "
+              f"{departments} — génération refusée :")
+        for item in missing_data:
+            print(f"[eqasim]   - {item}")
+        raise SystemExit(3)
+
     # ── Build synpp config ─────────────────────────────────────────────────────
     if effective_population <= 0:
         effective_population = TOULOUSE_DEPT_POPULATION
@@ -262,31 +346,35 @@ def run(
         f"(sampling_rate={sampling_rate:.6f}, effective_population={effective_population})"
     )
 
+    base_config = load_base_config()
+    runtime_config = {
+        "processes": int(os.environ.get("EQASIM_PROCESSES", "4")),
+        "sampling_rate": round(sampling_rate, 8),
+        "random_seed": int(os.environ.get("EQASIM_RANDOM_SEED", "1234")),
+        "data_path": "/eqasim-data",
+        "output_path": OUTPUT_DIR,
+        "output_prefix": output_prefix,
+        "java_memory": "4G",
+        "regions": [],
+        "departments": departments,
+        "communes": communes,
+        "communes_file": "",   # la liste est passée en clair ci-dessus ; le chemin hôte n'existe pas ici
+        "gtfs_path": "gtfs_toulouse",
+        "osm_path": "osm_toulouse",
+        "ban_path": "ban_toulouse",
+        "bdtopo_path": "bdtopo_toulouse",
+        "generate_personality_traits": generate_personality,
+    }
+    assert set(runtime_config) == set(RUNTIME_OVERRIDDEN_KEYS)
     config = {
         "working_directory": "/eqasim-cache",
         "run": [
             "synthesis.population.llm_agents",
         ],
-        "config": {
-            "processes": int(os.environ.get("EQASIM_PROCESSES", "4")),
-            "hts": "entd",
-            "sampling_rate": round(sampling_rate, 8),
-            "random_seed": int(os.environ.get("EQASIM_RANDOM_SEED", "1234")),
-            "data_path": "/eqasim-data",
-            "output_path": OUTPUT_DIR,
-            "output_prefix": output_prefix,
-            "java_memory": "4G",
-            "mode_choice": False,
-            "regions": [],
-            "departments": departments,
-            "communes": communes,
-            "gtfs_path": "gtfs_toulouse",
-            "osm_path": "osm_toulouse",
-            "ban_path": "ban_toulouse",
-            "bdtopo_path": "bdtopo_toulouse",
-            "generate_personality_traits": generate_personality,
-        },
+        "config": {**base_config, **runtime_config},
     }
+    print("[eqasim] réglages scientifiques (config_toulouse.yml) : "
+          + ", ".join(f"{k}={config['config'][k]}" for k in SCIENTIFIC_KEYS))
 
     with tempfile.NamedTemporaryFile(
         mode="w", suffix=".yml", delete=False, prefix="eqasim_config_"
@@ -294,9 +382,12 @@ def run(
         yaml.dump(config, tmp, default_flow_style=False, allow_unicode=True)
         tmp_path = tmp.name
 
-    # Snapshot existing files so we can identify what synpp newly creates.
+    # Le fichier écrit par synpp se reconnaît à sa DATE (écrit après le lancement), pas à la
+    # nouveauté de son nom : deux générations qui livrent le même effectif écrivent le même
+    # nom, et « nom inconnu avant le run » le manquait (constaté le 2026-09-03 : le vivier frais
+    # restait sous son nom d'effectif réel, le fichier cible périmé était rendu à l'appelant).
     pattern = re.compile(rf"^{re.escape(output_prefix)}population_(\d+)\.json$")
-    files_before = set(os.listdir(OUTPUT_DIR))
+    t_start = time.time()
 
     print(f"[eqasim] Running synpp with config: {tmp_path}")
     result = subprocess.run(
@@ -308,20 +399,26 @@ def run(
 
     # synpp writes the file with the actual agent count (e.g. population_1021.json).
     # Rename it to the exact requested size so downstream code can find it by name.
-    # Only consider files that did not exist before the run to avoid picking up stale
-    # outputs from earlier runs with a higher number in their name.
     target_path = os.path.join(OUTPUT_DIR, f"{output_prefix}population_{population_size}.json")
-    if not os.path.isfile(target_path):
-        new_files = [
-            (int(m.group(1)), os.path.join(OUTPUT_DIR, name))
-            for name in os.listdir(OUTPUT_DIR)
-            if name not in files_before and (m := pattern.match(name))
-        ]
-        if new_files:
-            _, src = max(new_files)
-            if src != target_path:
-                os.rename(src, target_path)
-                print(f"[eqasim] Renamed {os.path.basename(src)} → {os.path.basename(target_path)}")
+    new_files = [
+        (os.path.getmtime(os.path.join(OUTPUT_DIR, name)), int(m.group(1)), os.path.join(OUTPUT_DIR, name))
+        for name in os.listdir(OUTPUT_DIR)
+        if (m := pattern.match(name)) and os.path.getmtime(os.path.join(OUTPUT_DIR, name)) >= t_start - 1
+    ]
+    if new_files:
+        _, n_written, src = max(new_files)
+        if src != target_path:
+            # Le fichier cible peut déjà exister (régénération forcée) : il est REMPLACÉ. Avant le
+            # 2026-09-03, il était laissé en place et rendu à l'appelant — la population fraîche
+            # restait sous son nom d'effectif réel, et le notebook relisait l'ancienne en silence.
+            if os.path.isfile(target_path):
+                print(f"[eqasim] {os.path.basename(target_path)} existait (régénération forcée) : remplacé")
+            os.replace(src, target_path)
+            print(f"[eqasim] Renamed {os.path.basename(src)} ({n_written} personnes) → {os.path.basename(target_path)}")
+    elif not os.path.isfile(target_path):
+        print(f"[eqasim] ERROR [ALARME] synpp n'a produit aucun fichier {output_prefix}population_*.json "
+              f"dans {OUTPUT_DIR}")
+        sys.exit(4)
 
     return _find_cached_file(population_size, prefix=output_prefix)
 

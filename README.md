@@ -1,5 +1,13 @@
 # An open synthetic population of Île-de-France
 
+> **Fork Toulouse (llm-agents-gama).** Ce dépôt est le fork utilisé par la simulation
+> multi-agents de Toulouse : cadre de tirage = les 453 communes du périmètre EMC² 2023 sur six
+> départements (`config_toulouse.yml`, `communes_file`), journées donneuses ENTD = jours de
+> classe (`hts_school_days_only`), export JSON `synthesis.population.llm_agents`. Les
+> changements par rapport à l'amont sont consignés en tête de `CHANGELOG.md` (section « Fork
+> Toulouse ») ; la mise en place côté simulation est décrite dans
+> `docs/setup/population.md` du dépôt principal.
+
 ![Via Île-de-France](docs/via.png "Via Île-de-France")
 
 This repository contains the code to create an open data synthetic population

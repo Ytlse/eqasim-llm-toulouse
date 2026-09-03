@@ -9,10 +9,18 @@ Endpoints:
 """
 
 import json
+import sys
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import generate_population as genpop
+
+# Les `print` du wrapper (réglages scientifiques retenus, cadre de tirage, cache, renommage) ne
+# sortaient dans `docker logs` qu'à la vidange du tampon : stdout n'est pas un terminal dans le
+# conteneur, donc mis en tampon par blocs, pendant que synpp (sous-processus) écrit en direct.
+# Ligne par ligne, pour que le journal se lise dans l'ordre où les choses arrivent.
+sys.stdout.reconfigure(line_buffering=True)
+sys.stderr.reconfigure(line_buffering=True)
 
 
 _lock = threading.Lock()

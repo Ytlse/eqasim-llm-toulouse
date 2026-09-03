@@ -47,6 +47,13 @@ MODES_MAP = [
 def keep_school_days(df_trips, df_ages, enabled = True, wednesday_under_age = 11):
     """Ne garde que les journées donneuses qui sont des jours de classe (fork Toulouse).
 
+    Rend `(df_trips, personnes_ecartees)` : les personnes dont TOUS les trajets du jour de
+    référence sont écartés sortent du vivier de donneurs (`is_kish = False` dans `execute`).
+    Sans cela — version du 2026-09-03 matin — elles restaient Kish sans trajet, donc
+    `number_of_trips = 0` : des immobiles, à hauteur de 40,6 % de la population générée contre
+    15,1 % avant le filtre et 10,6 % dans l'enquête. Une journée de vacances n'est pas une
+    journée immobile ; elle n'est simplement pas une journée de classe.
+
     L'EMC² 2023, référence du jeu de test, s'enquête hors vacances scolaires ; l'ENTD 2008
     couvre l'année entière. Mesuré le 2026-09-03 sur K_deploc : 20 % des journées de semaine
     des 6-17 ans tombent en vacances (`V2_VAC_SCOL = 1`) et n'ont un trajet vers l'école que
@@ -61,9 +68,10 @@ def keep_school_days(df_trips, df_ages, enabled = True, wednesday_under_age = 11
     """
     if not enabled:
         print("School days filter disabled (hts_school_days_only = false)")
-        return df_trips
+        return df_trips, set()
 
     n0 = len(df_trips)
+    persons_before = set(df_trips["IDENT_IND"])
     holidays = pd.to_numeric(df_trips["V2_VAC_SCOL"], errors = "coerce").fillna(0) == 1
     df_trips = df_trips[~holidays]
 
@@ -75,9 +83,10 @@ def keep_school_days(df_trips, df_ages, enabled = True, wednesday_under_age = 11
         n_wednesday = int(wednesday.sum())
         df_trips = df_trips[~wednesday]
 
-    print("School days only: removed %d trips on school holidays and %d Wednesday trips of children under %s (%d -> %d trips)" % (
-        int(holidays.sum()), n_wednesday, wednesday_under_age, n0, len(df_trips)))
-    return df_trips
+    excluded_persons = persons_before - set(df_trips["IDENT_IND"])
+    print("School days only: removed %d trips on school holidays and %d Wednesday trips of children under %s (%d -> %d trips) ; %d donors whose reference day was not a school day leave the pool" % (
+        int(holidays.sum()), n_wednesday, wednesday_under_age, n0, len(df_trips), len(excluded_persons)))
+    return df_trips, excluded_persons
 
 
 def pupils_with_education_trip(df_persons, df_trips, max_age = 18):
@@ -254,10 +263,20 @@ def execute(context):
     df_trips = df_trips[f]
 
     # Fork Toulouse (ticket 031, § 1.2) : jours de classe seulement — voir keep_school_days.
-    df_trips = keep_school_days(
+    df_trips, excluded_persons = keep_school_days(
         df_trips, df_tcm_individu[["IDENT_IND", "AGE"]],
         enabled = context.config("hts_school_days_only"),
         wednesday_under_age = context.config("hts_exclude_wednesday_under_age"))
+    if excluded_persons:
+        # Ces personnes ne sont plus des donneurs : ni mobiles (plus de trajets), ni immobiles
+        # (leur journée de référence n'était pas un jour de classe, pas une journée sans
+        # déplacement). `is_kish = False` laisse `number_of_trips` à -1, et le stage
+        # `reweighted` les écarte comme toute personne sans information de déplacement.
+        f_excluded = df_persons["IDENT_IND"].isin(excluded_persons)
+        n_pupils = int((f_excluded & (pd.to_numeric(df_persons["AGE"], errors = "coerce") < 18)).sum())
+        df_persons.loc[f_excluded, "is_kish"] = False
+        print("School days only: %d donors removed from the pool (%d under 18) — %d Kish donors remain" % (
+            int(f_excluded.sum()), n_pupils, int(df_persons["is_kish"].sum())))
 
     # Only leave one day per person
     initial_count = len(df_trips)

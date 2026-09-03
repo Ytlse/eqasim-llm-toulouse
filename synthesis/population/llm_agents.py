@@ -293,6 +293,11 @@ def configure(context):
     context.stage("synthesis.population.enriched")
     context.stage("synthesis.population.activities")
     context.stage("synthesis.population.spatial.locations")
+    # Ticket 031 § 1.1 : la commune et l'IRIS du MÉNAGE, tels que le tirage du domicile les a
+    # fixés. Les colonnes `commune_id` / `iris_id` du recensement valent « undefined » pour
+    # 36 % des ménages (IRIS de moins de 200 habitants, communes sans IRIS) : le stage
+    # `home.zones` les a résolues avant de tirer l'adresse, c'est lui qui fait foi.
+    context.stage("synthesis.population.spatial.home.zones")
     context.config("output_path")
     context.config("output_prefix", "ile_de_france_")
     context.config("generate_personality_traits", False)
@@ -310,6 +315,33 @@ def execute(context):
 
     # ── Persons ────────────────────────────────────────────────────────────────
     df_persons = context.stage("synthesis.population.enriched")
+
+    # ── Commune et IRIS du ménage (ticket 031 § 1.1) ───────────────────────────
+    # Avant : `household.commune_id` recopiait la colonne du recensement, « undefined » pour
+    # 4 292 des 11 922 personnes du vivier v3 (36 %). Le runtime doit filtrer par commune du
+    # domicile (partie 2, § 2.1) : la valeur vient désormais du tirage de zone, qui pose une
+    # commune et un IRIS à TOUS les ménages. La colonne du recensement reste le repli, comptée.
+    df_zones = context.stage("synthesis.population.spatial.home.zones")[
+        ["household_id", "commune_id", "iris_id"]
+    ].rename(columns={"commune_id": "zone_commune_id", "iris_id": "zone_iris_id"})
+    df_persons = pd.merge(df_persons, df_zones, on="household_id", how="left")
+    _n_census_undefined = int((df_persons["commune_id"].astype(str) == "undefined").sum()) \
+        if "commune_id" in df_persons else len(df_persons)
+    _n_zone_missing = int(df_persons["zone_commune_id"].isna().sum())
+    for _col, _zone_col in (("commune_id", "zone_commune_id"), ("iris_id", "zone_iris_id")):
+        _zone = df_persons[_zone_col].astype(object)
+        if _col in df_persons:
+            _census = df_persons[_col].astype(object)
+            df_persons[_col] = _zone.where(_zone.notna(), _census)
+        else:
+            df_persons[_col] = _zone
+    print(f"[llm_agents] Commune du ménage : {_n_census_undefined} personnes « undefined » au "
+          f"recensement, {len(df_persons) - _n_zone_missing}/{len(df_persons)} résolues par le tirage "
+          f"de zone (home.zones)" + (f" — {_n_zone_missing} ménage(s) sans zone : repli recensement"
+                                   if _n_zone_missing else ""))
+    if _n_zone_missing:
+        print(f"[llm_agents] WARNING [ALARME] {_n_zone_missing} personne(s) dont le ménage n'a pas "
+              "de zone de domicile — le filtre runtime par commune les écartera")
 
     # ── Activities ─────────────────────────────────────────────────────────────
     df_activities = context.stage("synthesis.population.activities")[
@@ -600,7 +632,10 @@ def execute(context):
         # amont doit se voir, pas se fondre dans une population « presque » complète.
         def _root_field(column: str):
             value = row.get(column)
-            if value is None or (isinstance(value, float) and pd.isna(value)):
+            if value is None or (isinstance(value, float) and pd.isna(value)) \
+                    or str(value) == "undefined":
+                # « undefined » est la valeur manquante du recensement (IRIS anonymisé) :
+                # elle ne vaut pas mieux qu'un None, et se compte comme lui.
                 _missing_root_fields[column] += 1
                 return None
             return str(value)

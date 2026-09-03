@@ -71,9 +71,18 @@ config:
   # Activate if you want to run mode choice
   mode_choice: false
 
-  # Toulouse settings
+  # ── Périmètre d'étude : les 453 communes de l'EMC² 2023, six départements (ticket 031) ──
+  # Le cadre de tirage est la LISTE DES COMMUNES du périmètre d'enquête (`communes_file`,
+  # produit par `make communes-couronnes` dans llm-agents-gama), croisée avec `departments`.
+  # Attendu, journalisé par le stage data.spatial.codes : 31 → 346, 32 → 38, 81 → 27,
+  # 82 → 22, 09 → 10, 11 → 10 communes. Chaque département demandé exige sa BD TOPO
+  # (bdtopo_path) et sa BAN (ban_path) : le pipeline s'arrête sinon, il ne peuple pas
+  # « ce qu'il peut ». Pour ne servir que la Haute-Garonne (346 communes, version du
+  # ticket 026), réduire `departments` à ["31"] — la limite est alors chiffrée dans
+  # docs/arch/perimetre-population.md (limite n°6).
   regions: []
-  departments: ["31"]
+  departments: ["31", "32", "81", "82", "09", "11"]
+  communes_file: /Users/yvesb/Documents/Projects/llm-agents-gama/llm_module/data/commune_couronne.json
   gtfs_path: gtfs_toulouse
   osm_path: osm_toulouse
   ban_path: ban_toulouse
