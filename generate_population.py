@@ -69,7 +69,7 @@ RUNTIME_OVERRIDDEN_KEYS = (
 SCIENTIFIC_KEYS = (
     "hts", "filter_hts", "matching_attributes", "matching_minimum_observations",
     "matching_age_boundaries", "hts_school_days_only", "hts_exclude_wednesday_under_age",
-    "mode_choice",
+    "census_undefined_reweighting", "mode_choice",
 )
 
 

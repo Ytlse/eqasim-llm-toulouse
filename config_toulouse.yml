@@ -87,6 +87,12 @@ config:
   # docs/arch/perimetre-population.md (limite n°6).
   regions: []
   departments: ["31", "32", "81", "82", "09", "11"]
+  # Les personnes du recensement dont la commune est « undefined » (communes sans IRIS : le RP ne
+  # donne que le département) sont pondérées par la part de la population sans IRIS du département
+  # qui vit dans le cadre (ticket 031). Sans cela, toute la population rurale du département était
+  # versée dans les seules communes du cadre : 17 986 personnes pour 10 000 demandées et 42,5 % en
+  # 3ᵉ couronne sur les six départements (mesuré le 2026-09-03).
+  census_undefined_reweighting: true
   communes_file: /Users/yvesb/Documents/Projects/llm-agents-gama/llm_module/data/commune_couronne.json
   gtfs_path: gtfs_toulouse
   osm_path: osm_toulouse

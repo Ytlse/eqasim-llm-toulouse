@@ -2,6 +2,39 @@
 
 ## Fork Toulouse (llm-agents-gama) — non publié
 
+### 2026-09-03 — Cadre par liste de communes : les personnes à commune « undefined » sont pondérées
+Quand le cadre de tirage est une liste de communes, les personnes du recensement dont la commune
+n'est pas nommée (communes sans IRIS : le RP ne donne que le département) étaient toutes gardées,
+puis réparties par `home.zones` sur les seules communes sans IRIS **du cadre** — la population de
+toutes les communes rurales du département versée dans quelques villages. Invisible en
+Haute-Garonne (86,7 % de la population sans IRIS du 31 est dans le cadre), massif ailleurs :
+mesuré sur les six départements, **17 986 personnes pour 10 000 demandées, 42,5 % en 3ᵉ couronne**
+(cible 15,4 %), 1 682 personas pour les dix villages audois du cadre (2 143 habitants). Leur poids
+RP est désormais multiplié par la part de la population sans IRIS du département qui vit dans le
+cadre (31 : 86,7 %, 32 : 9,4 %, 81 : 9,0 %, 82 : 20,1 %, 09 : 4,0 %, 11 : 1,0 %), journalisée.
+
+### 2026-09-03 — BD TOPO : lecture du shapefile BATI/BATIMENT dans les archives `.7z` de l'IGN
+Les livraisons « TOUSTHEMES_SHP_LAMB93 » n'ont pas de GeoPackage : le stage `data.bdtopo.raw`
+extrait les seuls membres `BATI/BATIMENT.*` d'une archive `.7z` et les lit comme le shapefile
+(colonnes `ID`, `NB_LOGTS`), sans décompresser la livraison entière ; une archive sans source
+géométrique ou un département sans bâtiment sont des erreurs explicites, plus un « skipping » suivi
+d'un `concat` vide.
+
+### 2026-09-03 — Les lycéens ne sont plus appariés à des jeunes actifs : borne d'âge 17
+Les bornes des classes d'âge de l'appariement deviennent configurables (`matching_age_boundaries`,
+défaut eqasim `[14, 29, 44, 59, 74]`) et `config_toulouse.yml` pose une borne à **17 ans** : les
+15-17 ans (scolaires) ne partagent plus la classe 15-29 avec les 18-29 ans, dont ils héritaient
+des chaînes d'activités d'actifs — 80,4 % des 15-17 ans mobiles avec une activité d'études contre
+92 % chez les 6-14 ans (vivier du 2026-09-03). Décision de l'auteur du dépôt (ticket 031,
+question 2). Effet mesuré : voir la génération v4 du même jour.
+
+### 2026-09-03 — Le périmètre complet : BD TOPO 2025-03-15 et BAN des six départements
+Les données des départements 32, 81, 82, 09 et 11 sont téléchargées (BD TOPO 3-4 TOUSTHEMES SHP
+LAMB93 édition 2025-03-15, la 2024-09-15 n'étant plus servie par l'IGN ; la Haute-Garonne est
+reprise dans la même édition pour un bâti homogène), les BAN du 2026-09-03 ; le service part
+désormais des six départements par défaut (`EQASIM_DEPARTMENTS`). Empreintes et tailles dans le
+journal de téléchargement du ticket 031.
+
 ### 2026-09-03 — Le service Docker applique enfin les réglages d'appariement de `config_toulouse.yml`
 Jusqu'ici `generate_population.py` construisait sa propre configuration synpp **sans**
 `filter_hts`, `matching_attributes`, `matching_minimum_observations` ni les réglages des journées
