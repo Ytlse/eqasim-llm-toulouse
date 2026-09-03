@@ -24,12 +24,20 @@ DEFAULT_MATCHING_ATTRIBUTES = [
     "departement_id"
 ]
 
+# Bornes supérieures des classes d'âge de l'appariement (`np.digitize(..., right = True)`) :
+# 0-14, 15-29, 44, 59, 74, 75+. Fork Toulouse (ticket 031) : configurable par
+# `matching_age_boundaries`, pour séparer les 15-17 ans (scolaires) des 18-29 ans — dans la
+# classe 15-29, un lycéen héritait de la chaîne d'un jeune actif (80,4 % d'activité d'études
+# contre 92 % chez les 6-14 ans, mesuré le 2026-09-03).
+DEFAULT_AGE_BOUNDARIES = [14, 29, 44, 59, 74, 1000]
+
 def configure(context):
     context.config("processes", volatile = True)
     context.config("random_seed")
     context.config("matching_minimum_observations", 20)
     context.config("matching_minimum_age", 5)
     context.config("matching_attributes", DEFAULT_MATCHING_ATTRIBUTES)
+    context.config("matching_age_boundaries", DEFAULT_AGE_BOUNDARIES)
 
     context.stage("synthesis.population.sampled")
     context.stage("synthesis.population.income.selected")
@@ -188,7 +196,9 @@ def execute(context):
     except ValueError: pass
 
     # Define matching attributes
-    AGE_BOUNDARIES = [14, 29, 44, 59, 74, 1000]
+    AGE_BOUNDARIES = sorted(int(b) for b in context.config("matching_age_boundaries"))
+    if AGE_BOUNDARIES != DEFAULT_AGE_BOUNDARIES:
+        print("Matching age boundaries (fork Toulouse): %s" % AGE_BOUNDARIES)
 
     if "age_class" in columns:
         df_target["age_class"] = np.digitize(df_target["age"], AGE_BOUNDARIES, right = True)

@@ -50,6 +50,11 @@ config:
     - any_cars
     - socioprofessional_class
     - departement_id
+  # Bornes des classes d'âge de l'appariement (défaut eqasim : 14, 29, 44, 59, 74). La borne
+  # 17 sépare les lycéens (15-17) des jeunes actifs (18-29) : dans la classe 15-29, un scolaire
+  # de 16 ans héritait d'une chaîne d'actif — 80,4 % des 15-17 ans mobiles avec une activité
+  # d'études contre 92 % chez les 6-14 ans (mesuré le 2026-09-03, ticket 031, décision de l'auteur).
+  matching_age_boundaries: [14, 17, 29, 44, 59, 74, 1000]
   # Vivier national restauré, mais strates plus fines : un seuil plus bas évite de
   # dégrader dès le niveau 5.
   matching_minimum_observations: 5

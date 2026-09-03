@@ -48,23 +48,38 @@ def execute(context):
             geometry_path = None
 
             with py7zr.SevenZipFile(source_path) as archive:
-                internal_path = [path for path in archive.getnames() if path.endswith(".gpkg")]
+                names = archive.getnames()
+                internal_path = [path for path in names if path.endswith(".gpkg")]
+                # Fork Toulouse (ticket 031) : les livraisons IGN « TOUSTHEMES_SHP » n'ont pas de
+                # GeoPackage mais un shapefile BATI/BATIMENT.* ; on n'extrait que ces membres.
+                shp_members = [path for path in names if path.endswith("/BATI/BATIMENT.shp")]
 
-                if len(internal_path) != 1:
-                    print("  Skipping: No unambiguous geometry source found!")
+                if len(internal_path) == 1:
+                    print("  Extracting (GeoPackage) ...")
+                    archive.extract(context.path(), [internal_path[0]])
+                    geometry_path = "{}/{}".format(context.path(), internal_path[0])
+                    layer_kwargs = dict(layer = "batiment", columns = ["cleabs", "nombre_de_logements"])
+                    id_column, housing_column = "cleabs", "nombre_de_logements"
+                elif len(shp_members) == 1:
+                    stem = shp_members[0][:-len(".shp")]
+                    members = [path for path in names if path.startswith(stem + ".")]
+                    print("  Extracting (shapefile BATI/BATIMENT, %d membres) ..." % len(members))
+                    archive.extract(context.path(), members)
+                    geometry_path = "{}/{}".format(context.path(), shp_members[0])
+                    layer_kwargs = dict(columns = ["ID", "NB_LOGTS"])
+                    id_column, housing_column = "ID", "NB_LOGTS"
+                else:
+                    print("  Skipping: No unambiguous geometry source found (gpkg: %d, BATIMENT.shp: %d)!" % (
+                        len(internal_path), len(shp_members)))
                     continue
 
-                print("  Extracting ...")
-                archive.extract(context.path(), [internal_path[0]])
-                geometry_path = "{}/{}".format(context.path(), internal_path[0])
-
-            df_buildings = pyogrio.read_dataframe(geometry_path, layer="batiment", columns=[
-                "cleabs", "nombre_de_logements"]).to_crs("EPSG:2154")
-            df_buildings["building_id"] = df_buildings["cleabs"].apply(lambda x: int(x[8:]))
-            df_buildings["housing"] = df_buildings["nombre_de_logements"].fillna(0).astype(int)
+            df_buildings = pyogrio.read_dataframe(geometry_path, **layer_kwargs).to_crs("EPSG:2154")
+            df_buildings["building_id"] = df_buildings[id_column].apply(lambda x: int(x[8:]))
+            df_buildings["housing"] = df_buildings[housing_column].fillna(0).astype(int)
             df_buildings["centroid"] = df_buildings["geometry"].centroid
             df_buildings = df_buildings.set_geometry("centroid")
-            os.remove(geometry_path)
+            for extracted in glob.glob(geometry_path[:-len(".shp")] + ".*") if geometry_path.endswith(".shp") else [geometry_path]:
+                os.remove(extracted)
 
         print("  Filtering ...")
 
@@ -92,10 +107,15 @@ def execute(context):
         df_bdtopo.append(df_buildings[["building_id", "housing", "department_id", "geometry"]])
         known_ids |= set(df_buildings["building_id"].unique())
 
+    if len(df_bdtopo) == 0:
+        raise RuntimeError("[ALARME] BD TOPO : aucune archive exploitable dans %s (attendu : .7z avec "
+                           "un .gpkg ou un BATI/BATIMENT.shp, ou des shapefiles extraits)" % source_paths)
     df_bdtopo = pd.concat(df_bdtopo)
 
     for department_id in df_departments["departement_id"].values:
-        assert np.count_nonzero(df_bdtopo["department_id"] == department_id) > 0
+        if np.count_nonzero(df_bdtopo["department_id"] == department_id) == 0:
+            raise RuntimeError("[ALARME] BD TOPO : aucun bâtiment pour le département %s — archive "
+                               "manquante ou vide dans bdtopo_path" % department_id)
 
     return df_bdtopo[["building_id", "housing", "geometry"]]
 

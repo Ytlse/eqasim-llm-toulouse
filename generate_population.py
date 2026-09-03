@@ -68,7 +68,8 @@ RUNTIME_OVERRIDDEN_KEYS = (
 # Réglages scientifiques relus dans la base et journalisés à chaque génération.
 SCIENTIFIC_KEYS = (
     "hts", "filter_hts", "matching_attributes", "matching_minimum_observations",
-    "hts_school_days_only", "hts_exclude_wednesday_under_age", "mode_choice",
+    "matching_age_boundaries", "hts_school_days_only", "hts_exclude_wednesday_under_age",
+    "mode_choice",
 )
 
 
