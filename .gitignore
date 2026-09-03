@@ -37,4 +37,10 @@ docs/_build
 # other
 *.lock
 data/bdtopo_toulouse/BDTOPO_3-4_TOUSTHEMES_SHP_LAMB93_D031_2024-09-15/BDTOPO/2_METADONNEES_LIVRAISON_2024-09-00147/BDT_3-4_SHP_LAMB93_D031-ED2024-09-15/IGNF_BDTOPO_3-4_SHP_LAMB93_D031-ED2024-09-15.xml
-/data
+# Les DONNÉES de data/ sont suivies par DVC (data.dvc) ; le CODE des stages eqasim qui vit
+# sous data/ (data/hts, data/spatial, data/bdtopo…) est suivi par git. Git ne peut pas
+# ré-inclure un fichier dont le dossier parent est exclu : on exclut donc le contenu
+# (`/data/**`) puis on ré-inclut les dossiers et les sources Python.
+/data/**
+!/data/**/
+!/data/**/*.py
