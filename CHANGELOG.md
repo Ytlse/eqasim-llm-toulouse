@@ -1,5 +1,17 @@
 # Changelog
 
+## Fork Toulouse (llm-agents-gama) — non publié
+
+### 2026-09-03 — Les chaînes d'activités viennent de jours de classe
+Le stage `data.hts.entd.cleaned` ne garde plus que les journées donneuses hors vacances
+scolaires (`V2_VAC_SCOL`), et hors mercredi pour les moins de 11 ans (`V2_JOUR_DEP`), réglages
+`hts_school_days_only` et `hts_exclude_wednesday_under_age` de `config_toulouse.yml`. Motif :
+50 à 54 % seulement des 6-17 ans générés avaient une activité d'études un jour de semaine,
+contre 90 à 95 % dans l'EMC² 2023 ; hors vacances et hors mercredi, 88 à 96 % des journées
+ENTD ont un trajet vers l'école. Un témoin imprime la part des scolaires mobiles avec trajet
+vers l'école et alarme sous 85 % (mesuré sur les donneurs : 72.0 % → 90.8 % ; donneurs 15 687 → 12 392). Deux colonnes de `K_deploc` sont lues en plus.
+
+
 ## [1.4.0](https://github.com/eqasim-org/eqasim-france/compare/v1.3.0...v1.4.0) (2026-02-19)
 
 

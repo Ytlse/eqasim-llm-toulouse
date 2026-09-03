@@ -409,7 +409,7 @@ def create(output_path):
 
                 data["K_DEPLOC"].append(dict(
                     IDENT_IND = person_id, V2_MMOTIFDES = purpose, V2_MMOTIFORI = 1,
-                    V2_TYPJOUR = 1, V2_MORIHDEP = "08:00:00", V2_MDESHARR = "09:00:00",
+                    V2_TYPJOUR = 1, V2_VAC_SCOL = 0, V2_JOUR_DEP = 2, V2_MORIHDEP = "08:00:00", V2_MDESHARR = "09:00:00",
                     V2_MDISTTOT = 3, # km
                     IDENT_JOUR = 1, V2_MTP = mode,
                     V2_MDESDEP = work_department,
@@ -419,7 +419,7 @@ def create(output_path):
 
                 data["K_DEPLOC"].append(dict(
                     IDENT_IND = person_id, V2_MMOTIFDES = 2, V2_MMOTIFORI = purpose,
-                    V2_TYPJOUR = 1, V2_MORIHDEP = "17:00:00", V2_MDESHARR = "17:30:00",
+                    V2_TYPJOUR = 1, V2_VAC_SCOL = 0, V2_JOUR_DEP = 2, V2_MORIHDEP = "17:00:00", V2_MDESHARR = "17:30:00",
                     V2_MDISTTOT = 3, # km
                     IDENT_JOUR = 1, V2_MTP = mode,
                     V2_MDESDEP = home_department,
@@ -429,7 +429,7 @@ def create(output_path):
 
                 data["K_DEPLOC"].append(dict(
                     IDENT_IND = person_id, V2_MMOTIFDES = 1, V2_MMOTIFORI = 2,
-                    V2_TYPJOUR = 1, V2_MORIHDEP = "18:00:00", V2_MDESHARR = "19:00:00",
+                    V2_TYPJOUR = 1, V2_VAC_SCOL = 0, V2_JOUR_DEP = 2, V2_MORIHDEP = "18:00:00", V2_MDESHARR = "19:00:00",
                     V2_MDISTTOT = 3, # km
                     IDENT_JOUR = 1, V2_MTP = mode,
                     V2_MDESDEP = home_department,
@@ -440,7 +440,7 @@ def create(output_path):
                 # Add a tail
                 data["K_DEPLOC"].append(dict(
                     IDENT_IND = person_id, V2_MMOTIFDES = 2, V2_MMOTIFORI = 1,
-                    V2_TYPJOUR = 1, V2_MORIHDEP = "21:00:00", V2_MDESHARR = "22:00:00",
+                    V2_TYPJOUR = 1, V2_VAC_SCOL = 0, V2_JOUR_DEP = 2, V2_MORIHDEP = "21:00:00", V2_MDESHARR = "22:00:00",
                     V2_MDISTTOT = 3, # km
                     IDENT_JOUR = 1, V2_MTP = mode,
                     V2_MDESDEP = home_department,

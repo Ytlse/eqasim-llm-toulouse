@@ -27,6 +27,19 @@ config:
   # permis de conduire et sa chaîne domicile → travail.
   filter_hts: false
 
+  # ── Journées donneuses = jours de classe (ticket 031, § 1.2) ─────────────────
+  # L'EMC² 2023 s'enquête hors vacances scolaires ; l'ENTD 2008 couvre l'année. Sans ce
+  # filtre, 50 à 54 % seulement des 6-17 ans du vivier avaient une activité d'études un jour
+  # de semaine (EMC² : 90 à 95 %) : les journées de vacances (`V2_VAC_SCOL = 1`, 20 % des
+  # journées) et le mercredi des écoliers de 2008 (`V2_JOUR_DEP = 4`) entraient dans un jour
+  # de semaine simulé. Le filtre s'applique à TOUS les donneurs (cohérence avec l'enquête de
+  # référence) ; la règle du mercredi ne vise que les moins de 11 ans (0 la désactive).
+  # Coût mesuré : 15 687 → 12 392 donneurs de jours de référence (−21 %)  la plus petite classe d'âge en garde 858
+  # pour un seuil de 5. Témoin en sortie du stage data.hts.entd.cleaned : part des scolaires
+  # mobiles avec un trajet vers l'école (alarme sous 85 %).
+  hts_school_days_only: true
+  hts_exclude_wednesday_under_age: 11
+
   # La dégradation retire les colonnes **par la fin** (`column_indices[:level]`,
   # synthesis/population/matched.py). L'attribut placé en tête est donc le dernier
   # abandonné : `age_class` d'abord, pour qu'un enfant ne soit jamais apparié à un
